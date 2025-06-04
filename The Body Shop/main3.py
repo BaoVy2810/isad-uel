@@ -1,353 +1,588 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+from datetime import datetime, timedelta
+import warnings
+
+warnings.filterwarnings('ignore')
+
+# Set Vietnamese locale for matplotlib
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial Unicode MS', 'Tahoma']
+plt.style.use('seaborn-v0_8')
 
 
-# Function to safely read Excel sheets
-def safe_read_excel(file_path, sheet_name=None):
-    try:
-        if sheet_name:
-            return pd.read_excel(file_path, sheet_name=sheet_name)
-        else:
-            return pd.read_excel(file_path)
-    except ValueError as e:
-        print(f"⚠️ Warning: {e}")
-        return None
-    except FileNotFoundError as e:
-        print(f"❌ Error: File not found - {file_path}")
-        return None
+class BodyShopAnalytics:
+    def __init__(self):
+        self.karma = None
+        self.apify = None
+        self.fastmoss_video = None
+        self.fastmoss_live = None
+        self.fastmoss_product = None
+        self.analysis_results = {}
 
-
-# Function to list available sheets in Excel file
-def list_excel_sheets(file_path):
-    try:
-        xl_file = pd.ExcelFile(file_path)
-        return xl_file.sheet_names
-    except Exception as e:
-        print(f"❌ Error reading {file_path}: {e}")
-        return []
-
-
-# Đọc các file dữ liệu với xử lý lỗi
-print("📊 Đang đọc dữ liệu...")
-
-karma = safe_read_excel('[FANPAGE KARMA] The Body Shop.xlsx', sheet_name='Metrics Overview')
-apify = safe_read_excel('[APIFY] The Body Shop.xlsx')
-
-# Check available sheets in FASTMOSS file
-print("\n🔍 Kiểm tra các sheet có sẵn trong file FASTMOSS:")
-fastmoss_sheets = list_excel_sheets('[FASTMOSS] The Body Shop.xlsx')
-print(f"Available sheets: {fastmoss_sheets}")
-
-fastmoss_video = safe_read_excel('[FASTMOSS] The Body Shop.xlsx', sheet_name='Data Video')
-fastmoss_live = safe_read_excel('[FASTMOSS] The Body Shop.xlsx', sheet_name='Data Livestream')
-
-# Try to read product data with different possible sheet names
-fastmoss_product = None
-possible_product_sheets = ['Data Product ', 'Data Product', 'Product', 'Products', 'Sản phẩm', 'Data Sản phẩm']
-
-for sheet_name in possible_product_sheets:
-    if sheet_name in fastmoss_sheets:
-        fastmoss_product = safe_read_excel('[FASTMOSS] The Body Shop.xlsx', sheet_name=sheet_name)
-        print(f"✅ Found product data in sheet: {sheet_name}")
-        break
-
-if fastmoss_product is None:
-    print("⚠️ Warning: Product data sheet not found. Continuing without product analysis.")
-
-# ===== CHUẨN HÓA DỮ LIỆU =====
-print("\n🔧 Đang chuẩn hóa dữ liệu...")
-
-
-# Function to safely convert datetime columns
-def safe_datetime_convert(df, column_name, unit=None):
-    if df is not None and column_name in df.columns:
+    def safe_read_excel(self, file_path, sheet_name=None):
+        """Safely read Excel files with error handling"""
         try:
-            if unit:
-                df[column_name] = pd.to_datetime(df[column_name], unit=unit)
+            if sheet_name:
+                return pd.read_excel(file_path, sheet_name=sheet_name)
             else:
-                df[column_name] = pd.to_datetime(df[column_name])
-            print(f"✅ Converted {column_name} to datetime")
-        except Exception as e:
-            print(f"⚠️ Warning: Could not convert {column_name} to datetime: {e}")
-    else:
-        if df is not None:
-            print(f"⚠️ Warning: Column '{column_name}' not found. Available columns: {df.columns.tolist()}")
-
-
-# Chuyển kiểu ngày tháng (chỉ nếu dữ liệu tồn tại)
-# ✅ Kiểm tra Karma sheet nếu toàn cột Unnamed
-if karma is not None:
-    print(f"Karma columns: {karma.columns.tolist()}")
-    if all(col.startswith('Unnamed') for col in karma.columns):
-        print("⚠️ Warning: All columns in Karma are unnamed. Trying with header=1...")
-        try:
-            karma = pd.read_excel('[FANPAGE KARMA] The Body Shop.xlsx', sheet_name='Metrics Overview', header=1)
-            print(f"✅ New Karma columns: {karma.columns.tolist()}")
-        except Exception as e:
-            print(f"❌ Failed to re-read Karma with header=1: {e}")
-
-    # Try common date column names
-    date_columns = ['Date', 'date', 'Ngày', 'Time', 'Timestamp']
-    for col in date_columns:
-        if col in karma.columns:
-            safe_datetime_convert(karma, col)
-            break
-
-if apify is not None:
-    safe_datetime_convert(apify, 'createTime', unit='s')
-
-# ✅ Đổi tên cột đúng cho ngày đăng
-if fastmoss_video is not None:
-    safe_datetime_convert(fastmoss_video, 'Thời gian phát hành')  # Sửa từ 'Ngày đăng'
-
-if fastmoss_live is not None:
-    safe_datetime_convert(fastmoss_live, 'Thời gian bắt đầu Livestream')  # Sửa từ 'Ngày'
-
-
-# Làm sạch đơn vị tiền tệ (VND)
-def clean_currency(value):
-    try:
-        if pd.isna(value):
+                return pd.read_excel(file_path)
+        except ValueError as e:
+            print(f"⚠️ Warning: {e}")
             return None
-        if isinstance(value, str):
-            value = value.replace("₫", "").replace(".", "").replace(",", ".").replace(" ", "").lower()
-            if "tr" in value:
-                return float(value.replace("tr", "")) * 1_000_000
-            elif "k" in value:
-                return float(value.replace("k", "")) * 1_000
-            else:
-                return float(value)
-        return float(value)
-    except:
+        except FileNotFoundError as e:
+            print(f"❌ Error: File not found - {file_path}")
+            return None
+
+    def list_excel_sheets(self, file_path):
+        """List available sheets in Excel file"""
+        try:
+            xl_file = pd.ExcelFile(file_path)
+            return xl_file.sheet_names
+        except Exception as e:
+            print(f"❌ Error reading {file_path}: {e}")
+            return []
+
+    def load_data(self):
+        """Load all data sources"""
+        print("📊 Loading data sources...")
+
+        # Load Karma (Facebook) data
+        self.karma = self.safe_read_excel('[FANPAGE KARMA] The Body Shop.xlsx',
+                                          sheet_name='Metrics Overview')
+
+        # Load Apify (TikTok) data
+        self.apify = self.safe_read_excel('[APIFY] The Body Shop.xlsx')
+
+        # Load FASTMOSS data
+        fastmoss_sheets = self.list_excel_sheets('[FASTMOSS] The Body Shop.xlsx')
+        print(f"🔍 Available FASTMOSS sheets: {fastmoss_sheets}")
+
+        self.fastmoss_video = self.safe_read_excel('[FASTMOSS] The Body Shop.xlsx',
+                                                   sheet_name='Data Video')
+        self.fastmoss_live = self.safe_read_excel('[FASTMOSS] The Body Shop.xlsx',
+                                                  sheet_name='Data Livestream')
+
+        # Try to load product data
+        possible_product_sheets = ['Data Product ', 'Data Product', 'Product',
+                                   'Products', 'Sản phẩm', 'Data Sản phẩm']
+
+        for sheet_name in possible_product_sheets:
+            if sheet_name in fastmoss_sheets:
+                self.fastmoss_product = self.safe_read_excel('[FASTMOSS] The Body Shop.xlsx',
+                                                             sheet_name=sheet_name)
+                print(f"✅ Found product data in sheet: {sheet_name}")
+                break
+
+        if self.fastmoss_product is None:
+            print("⚠️ Warning: Product data sheet not found.")
+
+    def safe_datetime_convert(self, df, column_name, unit=None):
+        """Safely convert datetime columns"""
+        if df is not None and column_name in df.columns:
+            try:
+                if unit:
+                    df[column_name] = pd.to_datetime(df[column_name], unit=unit)
+                else:
+                    df[column_name] = pd.to_datetime(df[column_name])
+                print(f"✅ Converted {column_name} to datetime")
+                return True
+            except Exception as e:
+                print(f"⚠️ Warning: Could not convert {column_name} to datetime: {e}")
+                return False
+        return False
+
+    def clean_currency(self, value):
+        """Clean Vietnamese currency format"""
+        try:
+            if pd.isna(value):
+                return None
+            if isinstance(value, str):
+                value = value.replace("₫", "").replace(".", "").replace(",", ".").replace(" ", "").lower()
+                if "tr" in value:
+                    return float(value.replace("tr", "")) * 1_000_000
+                elif "k" in value:
+                    return float(value.replace("k", "")) * 1_000
+                else:
+                    return float(value)
+            return float(value)
+        except:
+            return None
+
+    def normalize_data(self):
+        """Normalize and clean all data"""
+        print("\n🔧 Normalizing data...")
+
+        # Handle Karma (Facebook) data
+        if self.karma is not None:
+            print(f"Karma columns: {self.karma.columns.tolist()}")
+
+            # Check if all columns are unnamed (header issue)
+            if all(col.startswith('Unnamed') for col in self.karma.columns):
+                print("⚠️ Trying to re-read Karma with header=1...")
+                try:
+                    self.karma = pd.read_excel('[FANPAGE KARMA] The Body Shop.xlsx',
+                                               sheet_name='Metrics Overview', header=1)
+                    print(f"✅ New Karma columns: {self.karma.columns.tolist()}")
+                except Exception as e:
+                    print(f"❌ Failed to re-read Karma: {e}")
+
+            # Convert date columns
+            date_columns = ['Date', 'date', 'Ngày', 'Time', 'Timestamp']
+            for col in date_columns:
+                if col in self.karma.columns:
+                    self.safe_datetime_convert(self.karma, col)
+                    break
+
+        # Handle Apify (TikTok) data
+        if self.apify is not None:
+            self.safe_datetime_convert(self.apify, 'createTime', unit='s')
+
+        # Handle FASTMOSS video data
+        if self.fastmoss_video is not None:
+            self.safe_datetime_convert(self.fastmoss_video, 'Thời gian phát hành')
+            if 'Doanh số bán hàng của video' in self.fastmoss_video.columns:
+                self.fastmoss_video['Doanh số (VND)'] = self.fastmoss_video['Doanh số bán hàng của video'].apply(
+                    self.clean_currency)
+
+        # Handle FASTMOSS livestream data
+        if self.fastmoss_live is not None:
+            self.safe_datetime_convert(self.fastmoss_live, 'Thời gian bắt đầu Livestream')
+            if 'Doanh số Livestream' in self.fastmoss_live.columns:
+                self.fastmoss_live['Doanh số (VND)'] = self.fastmoss_live['Doanh số Livestream'].apply(
+                    self.clean_currency)
+
+        # Handle product data
+        if self.fastmoss_product is not None and 'Doanh số' in self.fastmoss_product.columns:
+            self.fastmoss_product['Doanh số (VND)'] = self.fastmoss_product['Doanh số'].apply(self.clean_currency)
+
+    def analyze_facebook_engagement(self):
+        """Analyze Facebook engagement patterns"""
+        if self.karma is None:
+            print("⚠️ Skipping Facebook analysis - data not available")
+            return None
+
+        print("\n📈 Analyzing Facebook engagement...")
+
+        # Find date and engagement columns
+        date_col = None
+        engagement_col = None
+
+        for col in self.karma.columns:
+            if any(keyword in col.lower() for keyword in ['date', 'ngày', 'time']):
+                date_col = col
+                break
+
+        for col in self.karma.columns:
+            if any(keyword in col.lower() for keyword in ['engagement', 'tương tác', 'interact']):
+                engagement_col = col
+                break
+
+        if date_col and engagement_col:
+            # Create engagement over time plot
+            plt.figure(figsize=(12, 6))
+            sns.lineplot(data=self.karma, x=date_col, y=engagement_col)
+            plt.title("Facebook Engagement Over Time", fontsize=14, fontweight='bold')
+            plt.xlabel("Date")
+            plt.ylabel("Engagement")
+            plt.xticks(rotation=45)
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.show()
+
+            # Calculate basic statistics
+            fb_stats = {
+                'total_engagement': self.karma[engagement_col].sum(),
+                'avg_daily_engagement': self.karma[engagement_col].mean(),
+                'peak_engagement': self.karma[engagement_col].max(),
+                'peak_date': self.karma.loc[self.karma[engagement_col].idxmax(), date_col]
+            }
+
+            self.analysis_results['facebook'] = fb_stats
+            return fb_stats
+        else:
+            print(f"⚠️ Required columns not found. Available: {self.karma.columns.tolist()}")
+            return None
+
+    def analyze_tiktok_performance(self):
+        """Analyze TikTok video performance"""
+        if self.apify is None:
+            print("⚠️ Skipping TikTok analysis - data not available")
+            return None
+
+        print("\n🎵 Analyzing TikTok performance...")
+
+        # Top performing videos
+        if 'playCount' in self.apify.columns:
+            top_videos = self.apify.nlargest(10, 'playCount')
+            print("🔥 Top 10 TikTok videos by views:")
+
+            display_cols = ['desc', 'playCount', 'diggCount', 'shareCount']
+            available_cols = [col for col in display_cols if col in top_videos.columns]
+            if available_cols:
+                print(top_videos[available_cols].to_string(index=False))
+
+            # Weekly performance analysis
+            if 'createTime' in self.apify.columns:
+                self.apify['week'] = self.apify['createTime'].dt.isocalendar().week
+                self.apify['weekday'] = self.apify['createTime'].dt.day_name()
+                self.apify['hour'] = self.apify['createTime'].dt.hour
+
+                # Weekly aggregation
+                weekly_stats = self.apify.groupby('week').agg({
+                    'playCount': ['sum', 'mean', 'count'],
+                    'diggCount': 'sum',
+                    'shareCount': 'sum',
+                    'commentCount': 'sum'
+                }).round(2)
+
+                # Calculate engagement rate
+                total_interactions = (self.apify['diggCount'].fillna(0) +
+                                      self.apify['shareCount'].fillna(0) +
+                                      self.apify['commentCount'].fillna(0))
+                self.apify['engagement_rate'] = (total_interactions / self.apify['playCount'] * 100).round(2)
+
+                # Posting time analysis
+                self.plot_posting_patterns()
+
+                # Performance metrics
+                tiktok_stats = {
+                    'total_videos': len(self.apify),
+                    'total_views': self.apify['playCount'].sum(),
+                    'avg_views_per_video': self.apify['playCount'].mean(),
+                    'avg_engagement_rate': self.apify['engagement_rate'].mean(),
+                    'best_posting_hour': self.apify.groupby('hour')['playCount'].mean().idxmax()
+                }
+
+                self.analysis_results['tiktok'] = tiktok_stats
+                return tiktok_stats
+
         return None
 
+    def plot_posting_patterns(self):
+        """Plot TikTok posting patterns"""
+        if self.apify is None or 'hour' not in self.apify.columns:
+            return
 
-# Áp dụng vào cột doanh số (chỉ nếu dữ liệu tồn tại)
-if fastmoss_video is not None and 'Doanh số bán hàng của video' in fastmoss_video.columns:
-    fastmoss_video['Doanh số (VND)'] = fastmoss_video['Doanh số bán hàng của video'].apply(clean_currency)
+        fig, axes = plt.subplots(1, 2, figsize=(15, 5))
 
-if fastmoss_live is not None and 'Doanh số Livestream' in fastmoss_live.columns:
-    fastmoss_live['Doanh số (VND)'] = fastmoss_live['Doanh số Livestream'].apply(clean_currency)
+        # Hourly posting pattern
+        hourly_views = self.apify.groupby('hour')['playCount'].mean()
+        axes[0].bar(hourly_views.index, hourly_views.values, alpha=0.7, color='skyblue')
+        axes[0].set_title('Average Views by Posting Hour')
+        axes[0].set_xlabel('Hour of Day')
+        axes[0].set_ylabel('Average Views')
+        axes[0].grid(True, alpha=0.3)
 
-if fastmoss_product is not None and 'Doanh số' in fastmoss_product.columns:
-    fastmoss_product['Doanh số (VND)'] = fastmoss_product['Doanh số'].apply(clean_currency)
+        # Weekly posting pattern
+        if 'weekday' in self.apify.columns:
+            weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
+                             'Friday', 'Saturday', 'Sunday']
+            weekday_views = self.apify.groupby('weekday')['playCount'].mean().reindex(weekday_order)
+            axes[1].bar(range(len(weekday_views)), weekday_views.values, alpha=0.7, color='lightcoral')
+            axes[1].set_title('Average Views by Day of Week')
+            axes[1].set_xlabel('Day of Week')
+            axes[1].set_ylabel('Average Views')
+            axes[1].set_xticks(range(len(weekday_order)))
+            axes[1].set_xticklabels([day[:3] for day in weekday_order], rotation=45)
+            axes[1].grid(True, alpha=0.3)
 
-# ===== 1️⃣ PHÂN TÍCH TƯƠNG TÁC TRÊN FACEBOOK (KARMA) =====
-if karma is not None:
-    print("\n📈 Đang tạo biểu đồ Facebook engagement...")
-
-    # Find the date column and engagement column
-    date_col = None
-    engagement_col = None
-
-    # Look for date column
-    for col in karma.columns:
-        if any(keyword in col.lower() for keyword in ['date', 'ngày', 'time']):
-            date_col = col
-            break
-
-    # Look for engagement column
-    for col in karma.columns:
-        if any(keyword in col.lower() for keyword in ['engagement', 'tương tác', 'interact']):
-            engagement_col = col
-            break
-
-    if date_col and engagement_col:
-        plt.figure(figsize=(10, 5))
-        sns.lineplot(data=karma, x=date_col, y=engagement_col)
-        plt.title("Tương tác tổng thể theo ngày (Facebook)")
-        plt.xlabel("Ngày")
-        plt.ylabel("Engagement")
-        plt.grid(True)
         plt.tight_layout()
         plt.show()
-    else:
-        print(f"⚠️ Could not find date or engagement columns. Available columns: {karma.columns.tolist()}")
-else:
-    print("⚠️ Bỏ qua phân tích Facebook - dữ liệu không khả dụng")
 
-# ===== 2️⃣ PHÂN TÍCH TOP VIDEO TIKTOK (APIFY) =====
-# ✅ Phân tích TikTok videos
-if apify is not None:
-    print("🎥 Phân tích TikTok videos...")
-    # Sắp xếp video theo lượt xem giảm dần
-    if 'playCount' in apify.columns:
-        top_tiktok = apify.sort_values(by='playCount', ascending=False).head(10)
-        print("🔥 Top 10 video TikTok nhiều lượt xem nhất:")
-        # ✅ Kiểm tra các cột có tồn tại trước khi in
-        expected_columns = ['desc', 'playCount', 'diggCount', 'shareCount']
-        available_columns = [col for col in expected_columns if col in top_tiktok.columns]
-        if available_columns:
-            print(top_tiktok[available_columns])
-        else:
-            print(f"⚠️ Không tìm thấy các cột mong đợi trong Apify: {expected_columns}")
-            print(f"📋 Cột hiện có: {apify.columns.tolist()}")
-    else:
-        print("⚠️ Không có cột 'playCount' trong dữ liệu TikTok.")
+    def compare_video_vs_livestream(self):
+        """Compare video vs livestream performance"""
+        if self.fastmoss_video is None or self.fastmoss_live is None:
+            print("⚠️ Skipping video vs livestream comparison - insufficient data")
+            return None
 
-    # Tính tương tác trung bình theo tuần TikTok
-    if 'createTime' in apify.columns:
-        apify['week'] = apify['createTime'].dt.to_period("W").astype(str)
+        print("\n📊 Comparing Video vs Livestream performance...")
 
-        # ✅ Kiểm tra các cột cần thiết cho groupby
-        groupby_columns = ['playCount', 'diggCount', 'shareCount', 'commentCount']
-        available_groupby_columns = {col: 'sum' for col in groupby_columns if col in apify.columns}
+        # Find date columns
+        video_date_col = self.find_date_column(self.fastmoss_video,
+                                               ['Thời gian phát hành', 'Ngày đăng', 'Date'])
+        live_date_col = self.find_date_column(self.fastmoss_live,
+                                              ['Thời gian bắt đầu Livestream', 'Ngày', 'Date'])
 
-        if available_groupby_columns:
-            apify_grouped = apify.groupby('week').agg(available_groupby_columns).reset_index()
+        if not video_date_col or not live_date_col:
+            print("⚠️ Date columns not found for comparison")
+            return None
 
-            # Tính tỉ lệ tương tác nếu có đủ cột
-            if 'playCount' in apify_grouped.columns and 'diggCount' in apify_grouped.columns:
-                apify_grouped["Tỉ lệ tương tác (%)"] = (apify_grouped["diggCount"] / apify_grouped["playCount"]) * 100
+        # Aggregate by date
+        video_metrics = self.aggregate_by_date(self.fastmoss_video, video_date_col)
+        live_metrics = self.aggregate_by_date(self.fastmoss_live, live_date_col)
 
-                # Tính tỉ lệ tương tác tổng
-                interaction_cols = ['diggCount', 'shareCount', 'commentCount']
-                available_interaction_cols = [col for col in interaction_cols if col in apify_grouped.columns]
-                if available_interaction_cols:
-                    total_interactions = apify_grouped[available_interaction_cols].sum(axis=1)
-                    apify_grouped["Tỉ lệ tương tác tổng (%)"] = (total_interactions / apify_grouped["playCount"]) * 100
-        else:
-            print(f"⚠️ Không tìm thấy cột cần thiết để tính tương tác: {groupby_columns}")
-            apify_grouped = None
-    else:
-        print("⚠️ Không có cột 'createTime' để phân tích theo tuần")
-        apify_grouped = None
-else:
-    print("⚠️ Bỏ qua phân tích TikTok - dữ liệu không khả dụng")
-    apify_grouped = None
+        if video_metrics is not None and live_metrics is not None:
+            self.plot_video_vs_live_comparison(video_metrics, live_metrics)
 
-# ===== 3️⃣ SO SÁNH VIDEO vs LIVESTREAM (FASTMOSS) =====
-if fastmoss_video is not None and fastmoss_live is not None:
-    print("\n📊 So sánh Video vs Livestream...")
+            # Calculate comparison stats
+            comparison_stats = {
+                'video_total_views': video_metrics['Lượt xem'].sum() if 'Lượt xem' in video_metrics.columns else 0,
+                'live_total_views': live_metrics['Lượt xem'].sum() if 'Lượt xem' in live_metrics.columns else 0,
+                'video_avg_revenue': video_metrics[
+                    'Doanh số (VND)'].mean() if 'Doanh số (VND)' in video_metrics.columns else 0,
+                'live_avg_revenue': live_metrics[
+                    'Doanh số (VND)'].mean() if 'Doanh số (VND)' in live_metrics.columns else 0
+            }
 
-    # ✅ Tìm cột ngày phù hợp
-    video_date_col = None
-    live_date_col = None
+            self.analysis_results['comparison'] = comparison_stats
+            return comparison_stats
 
-    # Tìm cột ngày cho video
-    for col in ['Thời gian phát hành', 'Ngày đăng', 'Date']:
-        if col in fastmoss_video.columns:
-            video_date_col = col
-            break
+        return None
 
-    # Tìm cột ngày cho livestream
-    for col in ['Thời gian bắt đầu Livestream', 'Ngày', 'Date']:
-        if col in fastmoss_live.columns:
-            live_date_col = col
-            break
+    def find_date_column(self, df, possible_cols):
+        """Find the first available date column"""
+        for col in possible_cols:
+            if col in df.columns:
+                return col
+        return None
 
-    # Kiểm tra cột lượt xem
-    video_view_col = 'Lượt xem' if 'Lượt xem' in fastmoss_video.columns else None
-    live_view_col = 'Lượt xem' if 'Lượt xem' in fastmoss_live.columns else None
+    def aggregate_by_date(self, df, date_col):
+        """Aggregate metrics by date"""
+        if date_col not in df.columns:
+            return None
 
-    if video_date_col and live_date_col and video_view_col and live_view_col:
-        video_by_date = fastmoss_video.groupby(video_date_col)[video_view_col].sum()
-        live_by_date = fastmoss_live.groupby(live_date_col)[live_view_col].sum()
-
-        plt.figure(figsize=(10, 5))
-        video_by_date.plot(label='Video thường', marker='o')
-        live_by_date.plot(label='Livestream', marker='x')
-        plt.legend()
-        plt.title('So sánh lượt xem Video thường và Livestream theo ngày')
-        plt.ylabel('Lượt xem')
-        plt.xlabel('Ngày')
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-    else:
-        print(f"⚠️ Không tìm thấy cột cần thiết:")
-        print(f"Video - Date: {video_date_col}, Views: {video_view_col}")
-        print(f"Live - Date: {live_date_col}, Views: {live_view_col}")
-        print(f"Video columns: {fastmoss_video.columns.tolist()}")
-        print(f"Live columns: {fastmoss_live.columns.tolist()}")
-else:
-    print("⚠️ Bỏ qua so sánh Video vs Livestream - dữ liệu không đầy đủ")
-
-# ===== 4️⃣ XUẤT FILE EXCEL PHÂN TÍCH =====
-print("\n💾 Đang xuất file Excel...")
-
-# Prepare data for export (only if available)
-sheets_to_export = {}
-
-if karma is not None:
-    sheets_to_export["Facebook Karma"] = karma
-
-if fastmoss_video is not None:
-    video_summary = fastmoss_video.copy()
-
-    # ✅ Tìm cột ngày phù hợp
-    video_date_col = None
-    for col in ['Thời gian phát hành', 'Ngày đăng', 'Date']:
-        if col in video_summary.columns:
-            video_date_col = col
-            break
-
-    if video_date_col:
-        video_summary["week"] = video_summary[video_date_col].dt.to_period("W").astype(str)
-
-        # ✅ Kiểm tra các cột cần thiết
         agg_dict = {}
-        if 'Lượt xem' in video_summary.columns:
+        if 'Lượt xem' in df.columns:
             agg_dict['Lượt xem'] = 'sum'
-        if 'Số lượng likes' in video_summary.columns:
+        if 'Doanh số (VND)' in df.columns:
+            agg_dict['Doanh số (VND)'] = 'sum'
+        if 'Số lượng likes' in df.columns:
             agg_dict['Số lượng likes'] = 'sum'
-        if 'Doanh số (VND)' in video_summary.columns:
-            agg_dict['Doanh số (VND)'] = 'sum'
 
         if agg_dict:
-            video_grouped = video_summary.groupby("week").agg(agg_dict).reset_index()
+            return df.groupby(date_col).agg(agg_dict).reset_index()
+        return None
 
-            # Tính tỉ lệ tương tác nếu có đủ cột
-            if "Số lượng likes" in video_grouped.columns and "Lượt xem" in video_grouped.columns:
-                video_grouped["Tỉ lệ tương tác (%)"] = (video_grouped["Số lượng likes"] / video_grouped[
-                    "Lượt xem"]) * 100
+    def plot_video_vs_live_comparison(self, video_data, live_data):
+        """Plot comparison between video and livestream"""
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
-            sheets_to_export["FASTMOSS Video"] = video_grouped
+        # Views comparison
+        if 'Lượt xem' in video_data.columns and 'Lượt xem' in live_data.columns:
+            axes[0, 0].plot(video_data.index, video_data['Lượt xem'],
+                            label='Video', marker='o', alpha=0.7)
+            axes[0, 0].plot(live_data.index, live_data['Lượt xem'],
+                            label='Livestream', marker='s', alpha=0.7)
+            axes[0, 0].set_title('Views: Video vs Livestream')
+            axes[0, 0].set_ylabel('Views')
+            axes[0, 0].legend()
+            axes[0, 0].grid(True, alpha=0.3)
+
+        # Revenue comparison
+        if 'Doanh số (VND)' in video_data.columns and 'Doanh số (VND)' in live_data.columns:
+            axes[0, 1].plot(video_data.index, video_data['Doanh số (VND)'],
+                            label='Video Revenue', marker='o', alpha=0.7)
+            axes[0, 1].plot(live_data.index, live_data['Doanh số (VND)'],
+                            label='Livestream Revenue', marker='s', alpha=0.7)
+            axes[0, 1].set_title('Revenue: Video vs Livestream')
+            axes[0, 1].set_ylabel('Revenue (VND)')
+            axes[0, 1].legend()
+            axes[0, 1].grid(True, alpha=0.3)
+
+        # Total comparison bars
+        if 'Lượt xem' in video_data.columns and 'Lượt xem' in live_data.columns:
+            categories = ['Total Views', 'Total Revenue']
+            video_totals = [video_data['Lượt xem'].sum(),
+                            video_data['Doanh số (VND)'].sum() if 'Doanh số (VND)' in video_data.columns else 0]
+            live_totals = [live_data['Lượt xem'].sum(),
+                           live_data['Doanh số (VND)'].sum() if 'Doanh số (VND)' in live_data.columns else 0]
+
+            x = np.arange(len(categories))
+            width = 0.35
+
+            axes[1, 0].bar(x - width / 2, video_totals, width, label='Video', alpha=0.7)
+            axes[1, 0].bar(x + width / 2, live_totals, width, label='Livestream', alpha=0.7)
+            axes[1, 0].set_title('Total Performance Comparison')
+            axes[1, 0].set_xticks(x)
+            axes[1, 0].set_xticklabels(categories)
+            axes[1, 0].legend()
+            axes[1, 0].grid(True, alpha=0.3)
+
+        # Efficiency metrics
+        if ('Doanh số (VND)' in video_data.columns and 'Lượt xem' in video_data.columns and
+                'Doanh số (VND)' in live_data.columns and 'Lượt xem' in live_data.columns):
+            video_efficiency = video_data['Doanh số (VND)'] / video_data['Lượt xem']
+            live_efficiency = live_data['Doanh số (VND)'] / live_data['Lượt xem']
+
+            axes[1, 1].hist([video_efficiency.dropna(), live_efficiency.dropna()],
+                            bins=20, alpha=0.7, label=['Video', 'Livestream'])
+            axes[1, 1].set_title('Revenue Efficiency (VND per View)')
+            axes[1, 1].set_xlabel('VND per View')
+            axes[1, 1].set_ylabel('Frequency')
+            axes[1, 1].legend()
+            axes[1, 1].grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+    def generate_insights_report(self):
+        """Generate comprehensive insights report"""
+        print("\n📋 Generating insights report...")
+
+        report = {
+            'analysis_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'data_sources': {
+                'facebook': self.karma is not None,
+                'tiktok': self.apify is not None,
+                'video_content': self.fastmoss_video is not None,
+                'livestream': self.fastmoss_live is not None,
+                'product_data': self.fastmoss_product is not None
+            },
+            'key_insights': [],
+            'recommendations': []
+        }
+
+        # Add insights based on analysis results
+        if 'tiktok' in self.analysis_results:
+            tiktok_stats = self.analysis_results['tiktok']
+            report['key_insights'].append(
+                f"TikTok Performance: {tiktok_stats['total_videos']} videos with "
+                f"{tiktok_stats['total_views']:,.0f} total views and "
+                f"{tiktok_stats['avg_engagement_rate']:.2f}% average engagement rate"
+            )
+
+            if tiktok_stats['best_posting_hour']:
+                report['recommendations'].append(
+                    f"Optimal posting time: {tiktok_stats['best_posting_hour']}:00 "
+                    f"based on highest average views"
+                )
+
+        if 'facebook' in self.analysis_results:
+            fb_stats = self.analysis_results['facebook']
+            report['key_insights'].append(
+                f"Facebook Engagement: Peak engagement of {fb_stats['peak_engagement']:,.0f} "
+                f"on {fb_stats['peak_date']}"
+            )
+
+        if 'comparison' in self.analysis_results:
+            comp_stats = self.analysis_results['comparison']
+            if comp_stats['video_total_views'] > comp_stats['live_total_views']:
+                report['recommendations'].append(
+                    "Regular videos show higher total views than livestreams - "
+                    "consider increasing video content frequency"
+                )
+            else:
+                report['recommendations'].append(
+                    "Livestreams show strong performance - "
+                    "consider increasing livestream frequency"
+                )
+
+        return report
+
+    def export_results(self):
+        """Export analysis results to Excel"""
+        print("\n💾 Exporting results to Excel...")
+
+        sheets_to_export = {}
+
+        # Prepare data for export
+        if self.karma is not None:
+            sheets_to_export["Facebook_Data"] = self.karma
+
+        if self.apify is not None:
+            # Add calculated metrics to TikTok data
+            apify_export = self.apify.copy()
+            if 'engagement_rate' not in apify_export.columns and 'playCount' in apify_export.columns:
+                total_interactions = (apify_export['diggCount'].fillna(0) +
+                                      apify_export['shareCount'].fillna(0) +
+                                      apify_export['commentCount'].fillna(0))
+                apify_export['engagement_rate'] = (total_interactions / apify_export['playCount'] * 100).round(2)
+
+            sheets_to_export["TikTok_Data"] = apify_export
+
+        if self.fastmoss_video is not None:
+            sheets_to_export["Video_Data"] = self.fastmoss_video
+
+        if self.fastmoss_live is not None:
+            sheets_to_export["Livestream_Data"] = self.fastmoss_live
+
+        if self.fastmoss_product is not None:
+            sheets_to_export["Product_Data"] = self.fastmoss_product
+
+        # Add summary sheet
+        if self.analysis_results:
+            summary_data = []
+            for platform, stats in self.analysis_results.items():
+                for metric, value in stats.items():
+                    summary_data.append({
+                        'Platform': platform.title(),
+                        'Metric': metric.replace('_', ' ').title(),
+                        'Value': value
+                    })
+
+            if summary_data:
+                sheets_to_export["Analysis_Summary"] = pd.DataFrame(summary_data)
+
+        # Export to Excel with formatting
+        if sheets_to_export:
+            with pd.ExcelWriter("TheBodyShop_Enhanced_Analytics.xlsx",
+                                engine='xlsxwriter') as writer:
+                for sheet_name, df in sheets_to_export.items():
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                    # Get workbook and worksheet objects
+                    workbook = writer.book
+                    worksheet = writer.sheets[sheet_name]
+
+                    # Add formatting
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'text_wrap': True,
+                        'valign': 'top',
+                        'fg_color': '#D7E4BC',
+                        'border': 1
+                    })
+
+                    # Apply header formatting
+                    for col_num, value in enumerate(df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                        worksheet.set_column(col_num, col_num, len(str(value)) + 5)
+
+            print("✅ Enhanced analytics exported: TheBodyShop_Enhanced_Analytics.xlsx")
+            print(f"📋 Sheets exported: {list(sheets_to_export.keys())}")
         else:
-            print("⚠️ Không tìm thấy cột dữ liệu cần thiết cho video analysis")
+            print("❌ No data available for export")
 
-if fastmoss_live is not None:
-    live_summary = fastmoss_live.copy()
+    def run_complete_analysis(self):
+        """Run the complete analysis pipeline"""
+        print("🚀 Starting The Body Shop Social Media Analytics")
+        print("=" * 50)
 
-    # ✅ Tìm cột ngày phù hợp
-    live_date_col = None
-    for col in ['Thời gian bắt đầu Livestream', 'Ngày', 'Date']:
-        if col in live_summary.columns:
-            live_date_col = col
-            break
+        # Load and normalize data
+        self.load_data()
+        self.normalize_data()
 
-    if live_date_col:
-        live_summary["week"] = live_summary[live_date_col].dt.to_period("W").astype(str)
+        # Run analyses
+        self.analyze_facebook_engagement()
+        self.analyze_tiktok_performance()
+        self.compare_video_vs_livestream()
 
-        # ✅ Kiểm tra các cột cần thiết
-        agg_dict = {}
-        if 'Lượt xem' in live_summary.columns:
-            agg_dict['Lượt xem'] = 'sum'
-        if 'Doanh số (VND)' in live_summary.columns:
-            agg_dict['Doanh số (VND)'] = 'sum'
+        # Generate report and export
+        report = self.generate_insights_report()
+        self.export_results()
 
-        if agg_dict:
-            live_grouped = live_summary.groupby("week").agg(agg_dict).reset_index()
-            sheets_to_export["Livestream"] = live_grouped
-        else:
-            print("⚠️ Không tìm thấy cột dữ liệu cần thiết cho livestream analysis")
+        # Print final summary
+        print("\n🎉 Analysis Complete!")
+        print("=" * 50)
+        print("📊 Data Sources Processed:")
+        for source, available in report['data_sources'].items():
+            status = "✅" if available else "❌"
+            print(f"  {status} {source.replace('_', ' ').title()}")
 
-if apify_grouped is not None:
-    sheets_to_export["TikTok"] = apify_grouped
+        print("\n💡 Key Insights:")
+        for insight in report['key_insights']:
+            print(f"  • {insight}")
 
-if fastmoss_product is not None:
-    sheets_to_export["Product Data"] = fastmoss_product
+        print("\n🎯 Recommendations:")
+        for rec in report['recommendations']:
+            print(f"  • {rec}")
 
-# Export to Excel
-if sheets_to_export:
-    with pd.ExcelWriter("TheBodyShop_Insights.xlsx") as writer:
-        for sheet_name, data in sheets_to_export.items():
-            data.to_excel(writer, sheet_name=sheet_name, index=False)
+        return report
 
-    print("✅ Đã xuất file Excel: TheBodyShop_Insights.xlsx")
-    print(f"📋 Các sheet đã xuất: {list(sheets_to_export.keys())}")
-else:
-    print("❌ Không có dữ liệu để xuất")
 
-print("\n🎉 Hoàn thành phân tích!")
+# Execute the analysis
+if __name__ == "__main__":
+    analyzer = BodyShopAnalytics()
+    final_report = analyzer.run_complete_analysis()
