@@ -48,7 +48,7 @@ class BodyShopAnalytics:
         """Load all data sources"""
         print("📊 Loading data sources...")
 
-        # Load Karma (Facebook) data
+        # Load Karma (TikTok) data
         self.karma = self.safe_read_excel('[FANPAGE KARMA] The Body Shop.xlsx',
                                           sheet_name='Metrics Overview')
 
@@ -114,7 +114,7 @@ class BodyShopAnalytics:
         """Normalize and clean all data"""
         print("\n🔧 Normalizing data...")
 
-        # Handle Karma (Facebook) data
+        # Handle Karma (TikTok) data
         if self.karma is not None:
             print(f"Karma columns: {self.karma.columns.tolist()}")
 
@@ -157,13 +157,13 @@ class BodyShopAnalytics:
         if self.fastmoss_product is not None and 'Doanh số' in self.fastmoss_product.columns:
             self.fastmoss_product['Doanh số (VND)'] = self.fastmoss_product['Doanh số'].apply(self.clean_currency)
 
-    def analyze_facebook_engagement(self):
-        """Analyze Facebook engagement patterns"""
+    def analyze_tiktok_engagement(self):
+        """Analyze TikTok engagement patterns"""
         if self.karma is None:
-            print("⚠️ Skipping Facebook analysis - data not available")
+            print("⚠️ Skipping TikTok analysis - data not available")
             return None
 
-        print("\n📈 Analyzing Facebook engagement...")
+        print("\n📈 Analyzing TikTok engagement...")
 
         # Find date and engagement columns
         date_col = None
@@ -183,7 +183,7 @@ class BodyShopAnalytics:
             # Create engagement over time plot
             plt.figure(figsize=(12, 6))
             sns.lineplot(data=self.karma, x=date_col, y=engagement_col)
-            plt.title("Facebook Engagement Over Time", fontsize=14, fontweight='bold')
+            plt.title("TikTok Engagement Over Time", fontsize=14, fontweight='bold')
             plt.xlabel("Date")
             plt.ylabel("Engagement")
             plt.xticks(rotation=45)
@@ -199,7 +199,7 @@ class BodyShopAnalytics:
                 'peak_date': self.karma.loc[self.karma[engagement_col].idxmax(), date_col]
             }
 
-            self.analysis_results['facebook'] = fb_stats
+            self.analysis_results['tiktok'] = fb_stats
             return fb_stats
         else:
             print(f"⚠️ Required columns not found. Available: {self.karma.columns.tolist()}")
@@ -424,7 +424,7 @@ class BodyShopAnalytics:
         report = {
             'analysis_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'data_sources': {
-                'facebook': self.karma is not None,
+                '': self.karma is not None,
                 'tiktok': self.apify is not None,
                 'video_content': self.fastmoss_video is not None,
                 'livestream': self.fastmoss_live is not None,
@@ -449,10 +449,10 @@ class BodyShopAnalytics:
                     f"based on highest average views"
                 )
 
-        if 'facebook' in self.analysis_results:
-            fb_stats = self.analysis_results['facebook']
+        if 'tiktok' in self.analysis_results:
+            fb_stats = self.analysis_results['tiktok']
             report['key_insights'].append(
-                f"Facebook Engagement: Peak engagement of {fb_stats['peak_engagement']:,.0f} "
+                f"Tiktok Engagement: Peak engagement of {fb_stats['peak_engagement']:,.0f} "
                 f"on {fb_stats['peak_date']}"
             )
 
@@ -479,7 +479,7 @@ class BodyShopAnalytics:
 
         # Prepare data for export
         if self.karma is not None:
-            sheets_to_export["Facebook_Data"] = self.karma
+            sheets_to_export["TikTok_Data"] = self.karma
 
         if self.apify is not None:
             # Add calculated metrics to TikTok data
@@ -555,7 +555,7 @@ class BodyShopAnalytics:
         self.normalize_data()
 
         # Run analyses
-        self.analyze_facebook_engagement()
+        self.analyze_tiktok_engagement()
         self.analyze_tiktok_performance()
         self.compare_video_vs_livestream()
 
